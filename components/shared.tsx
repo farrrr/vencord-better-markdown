@@ -12,8 +12,8 @@ import { FootnoteRef } from "./Footnote";
 import { MathInline } from "./Math";
 import { decodeMathPlaceholder } from "../parser/math";
 
-// Fallback: try to find Discord's markdown parser via webpack
-// @ts-ignore — Parser may or may not have these exact method names
+// Use Vencord's standard Parser from @webpack/common.
+// Fallback: locate Discord's markdown parser via webpack props.
 const MarkdownParser = Parser ?? findByPropsLazy("parse", "defaultRules");
 
 /**
@@ -76,23 +76,14 @@ export function renderInline(text: string): React.ReactNode {
 
 /**
  * Parse text with Discord's markdown parser.
- * Falls back to plain text if parser is unavailable.
+ * Uses Vencord's standard Parser.parse(text, inline) API.
+ * Falls back to plain text if the parser isn't available.
  */
 function parseInline(text: string): React.ReactNode {
     if (!text) return null;
 
     try {
-        if (MarkdownParser?.parse && MarkdownParser?.reactParserFor) {
-            // Use Discord's simple-markdown parser
-            const rules = MarkdownParser.defaultRules;
-            const parser = MarkdownParser.parserFor(rules);
-            const renderer = MarkdownParser.reactParserFor(rules);
-            const ast = parser(text, { inline: true });
-            return renderer(ast);
-        }
-
         if (MarkdownParser?.parse) {
-            // Alternative API shape
             return MarkdownParser.parse(text, true);
         }
     } catch {
