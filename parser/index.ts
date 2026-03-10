@@ -18,6 +18,7 @@ import {
     type FootnoteData,
 } from "./footnote";
 import { extractBlockquotes, detectNestedBlockquote, type BlockquoteData } from "./blockquote";
+import { detectMath, extractMathBlocks, replaceMathInline } from "./math";
 
 // Re-export types for consumers
 export type { TableData } from "./table";
@@ -33,6 +34,7 @@ export interface FeatureFlags {
     enableHorizontalRules: boolean;
     enableFootnotes: boolean;
     enableNestedBlockquotes: boolean;
+    enableMath: boolean;
 }
 
 export type ParsedBlock =
@@ -42,7 +44,8 @@ export type ParsedBlock =
     | { type: "heading"; content: HeadingData }
     | { type: "hr" }
     | { type: "footnoteSection"; content: FootnoteData }
-    | { type: "blockquote"; content: BlockquoteData };
+    | { type: "blockquote"; content: BlockquoteData }
+    | { type: "mathBlock"; content: { latex: string } };
 
 interface LineRange {
     start: number;
@@ -60,6 +63,7 @@ export function hasGfmPatterns(text: string, flags: FeatureFlags): boolean {
     if (flags.enableHorizontalRules && detectHr(text)) return true;
     if (flags.enableFootnotes && detectFootnotes(text)) return true;
     if (flags.enableNestedBlockquotes && detectNestedBlockquote(text)) return true;
+    if (flags.enableMath && detectMath(text)) return true;
     return false;
 }
 
@@ -134,6 +138,19 @@ export function parseMessage(text: string, flags: FeatureFlags): ParsedBlock[] {
 
     // --- Extract block-level structures ---
 
+    // Math blocks ($$...$$) — extract BEFORE other parsers to take priority
+    if (flags.enableMath) {
+        const mathBlocks = extractMathBlocks(lines);
+        for (const mb of mathBlocks) {
+            if (isProtected(mb.start, codeRanges)) continue;
+            claimed.push({
+                start: mb.start,
+                end: mb.end,
+                block: { type: "mathBlock", content: { latex: mb.latex } },
+            });
+        }
+    }
+
     // Tables
     if (flags.enableTables) {
         const tables = extractTables(lines);
@@ -207,9 +224,13 @@ export function parseMessage(text: string, flags: FeatureFlags): ParsedBlock[] {
             const textContent = textLines.join("\n").trim();
             if (textContent) {
                 // Apply footnote ref replacement if needed
-                const content = footnoteData
+                let content = footnoteData
                     ? replaceFootnoteRefs(textContent, footnoteData)
                     : textContent;
+                // Apply inline math replacement
+                if (flags.enableMath) {
+                    content = replaceMathInline(content);
+                }
                 blocks.push({ type: "text", content });
             }
         }
@@ -225,9 +246,13 @@ export function parseMessage(text: string, flags: FeatureFlags): ParsedBlock[] {
             .filter((_, i) => !footnoteDefLines.has(cursor + i));
         const textContent = textLines.join("\n").trim();
         if (textContent) {
-            const content = footnoteData
+            let content = footnoteData
                 ? replaceFootnoteRefs(textContent, footnoteData)
                 : textContent;
+            // Apply inline math replacement
+            if (flags.enableMath) {
+                content = replaceMathInline(content);
+            }
             blocks.push({ type: "text", content });
         }
     }

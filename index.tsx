@@ -22,6 +22,8 @@ import { Heading } from "./components/Heading";
 import { Hr } from "./components/Hr";
 import { FootnoteSection } from "./components/Footnote";
 import { Blockquote } from "./components/Blockquote";
+import { MathBlock } from "./components/Math";
+import { loadKaTeX, cleanup as cleanupKaTeX } from "./katex-loader";
 
 import "./style.css";
 
@@ -66,6 +68,12 @@ const settings = definePluginSettings({
         default: true,
         restartNeeded: false,
     },
+    enableMath: {
+        type: OptionType.BOOLEAN,
+        description: "Render LaTeX math formulas via KaTeX ($...$ inline, $$...$$ block)",
+        default: true,
+        restartNeeded: false,
+    },
     theme: {
         type: OptionType.SELECT,
         description: "Visual theme for enhanced elements",
@@ -86,6 +94,7 @@ function getFeatureFlags(): FeatureFlags {
         enableHorizontalRules: settings.store.enableHorizontalRules,
         enableFootnotes: settings.store.enableFootnotes,
         enableNestedBlockquotes: settings.store.enableNestedBlockquotes,
+        enableMath: settings.store.enableMath,
     };
 }
 
@@ -113,6 +122,8 @@ function renderBlock(block: ParsedBlock, key: number): React.ReactNode {
             return <FootnoteSection key={key} data={block.content} />;
         case "blockquote":
             return <Blockquote key={key} data={block.content} />;
+        case "mathBlock":
+            return <MathBlock key={key} latex={block.content.latex} />;
         case "text":
             return renderTextBlock(block.content, key);
         default:
@@ -155,6 +166,19 @@ export default definePlugin({
     description: "Enhanced GFM markdown: tables, task lists, headings, horizontal rules, footnotes, and nested blockquotes",
     authors: [{ name: "BetterMarkdown", id: 0n }],
     settings,
+
+    start() {
+        // Preload KaTeX so it's ready when math content appears
+        if (settings.store.enableMath) {
+            loadKaTeX().catch(() => {
+                // Silently fail — KaTeX will retry on first render
+            });
+        }
+    },
+
+    stop() {
+        cleanupKaTeX();
+    },
 
     patches: [
         {

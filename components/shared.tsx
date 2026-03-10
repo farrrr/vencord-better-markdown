@@ -9,6 +9,8 @@
 import { findByPropsLazy } from "@webpack";
 import { Parser } from "@webpack/common";
 import { FootnoteRef } from "./Footnote";
+import { MathInline } from "./Math";
+import { decodeMathPlaceholder } from "../parser/math";
 
 // Fallback: try to find Discord's markdown parser via webpack
 // @ts-ignore — Parser may or may not have these exact method names
@@ -22,30 +24,41 @@ const MarkdownParser = Parser ?? findByPropsLazy("parse", "defaultRules");
 export function renderInline(text: string): React.ReactNode {
     if (!text) return null;
 
-    // Handle footnote reference placeholders: {{FN:index:id}}
-    const fnPattern = /\{\{FN:(\d+):([^}]+)\}\}/g;
-    if (fnPattern.test(text)) {
-        // Split text around footnote markers and render each part
+    // Handle placeholder patterns: {{FN:index:id}} and {{MATH:encoded}}
+    const placeholderPattern = /\{\{(?:FN:\d+:[^}]+|MATH:[^}]+)\}\}/;
+    if (placeholderPattern.test(text)) {
+        // Split text around all placeholder markers and render each part
         const parts: React.ReactNode[] = [];
         let lastIndex = 0;
-        const regex = /\{\{FN:(\d+):([^}]+)\}\}/g;
+        const regex = /\{\{(FN):(\d+):([^}]+)\}\}|\{\{(MATH):([^}]+)\}\}/g;
         let match: RegExpExecArray | null;
 
         while ((match = regex.exec(text)) !== null) {
-            // Text before the footnote marker
+            // Text before the marker
             if (match.index > lastIndex) {
                 const before = text.slice(lastIndex, match.index);
                 parts.push(parseInline(before));
             }
 
-            // Footnote ref component
-            parts.push(
-                <FootnoteRef
-                    key={`fn-${match[2]}-${match.index}`}
-                    index={parseInt(match[1], 10)}
-                    id={match[2]}
-                />
-            );
+            if (match[1] === "FN") {
+                // Footnote ref component
+                parts.push(
+                    <FootnoteRef
+                        key={`fn-${match[3]}-${match.index}`}
+                        index={parseInt(match[2], 10)}
+                        id={match[3]}
+                    />
+                );
+            } else if (match[4] === "MATH") {
+                // Inline math component
+                const latex = decodeMathPlaceholder(match[5]);
+                parts.push(
+                    <MathInline
+                        key={`math-${match.index}`}
+                        latex={latex}
+                    />
+                );
+            }
 
             lastIndex = match.index + match[0].length;
         }

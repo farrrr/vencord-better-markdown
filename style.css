@@ -341,3 +341,50 @@
 .bm-theme-light .bm-task-checkbox {
     border-color: #4f5660;
 }
+
+/* ============================================================
+ * MATH (KaTeX)
+ * ============================================================ */
+
+.bm-math-block {
+    margin: 8px 0;
+    text-align: center;
+    overflow-x: auto;
+    padding: 8px 0;
+}
+
+.bm-math-inline {
+    display: inline;
+    vertical-align: baseline;
+}
+
+.bm-math-loading {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 0.9em;
+}
+
+.bm-math-loading::after {
+    content: "";
+    animation: bm-math-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes bm-math-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+.bm-math-error {
+    color: var(--red-400, #ed4245);
+    font-family: var(--font-code);
+    font-size: 0.85em;
+    padding: 2px 4px;
+    border-radius: 3px;
+    background: rgba(237, 66, 69, 0.1);
+}
+
+.bm-math-raw {
+    font-family: var(--font-code);
+    font-size: 0.9em;
+    color: var(--text-muted);
+}
