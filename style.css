@@ -44,8 +44,14 @@
 
 .bm-table-td {
     padding: 6px 12px;
-    color: var(--text-normal);
+    color: var(--text-normal, #dcddde);
     border-bottom: 1px solid var(--background-modifier-accent, rgba(79, 84, 92, 0.24));
+}
+
+.bm-table-th,
+.bm-table-td {
+    /* Ensure text is always visible regardless of custom theme */
+    opacity: 1;
 }
 
 .bm-table-row-alt {
@@ -270,8 +276,14 @@
  * ============================================================ */
 
 .bm-enhanced-content {
-    /* Ensure our enhanced content integrates with Discord's layout */
     display: flow-root;
+    color: var(--text-normal, #dcddde);
+}
+
+/* Hide original message content when enhanced rendering is present.
+ * The accessory container is a sibling of the content container. */
+.bm-enhanced-content:not(:empty) {
+    margin-top: -4px;
 }
 
 .bm-text-block {

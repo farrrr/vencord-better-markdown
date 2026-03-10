@@ -3,17 +3,20 @@
  *
  * Enhances Discord's markdown rendering with full GFM support:
  * tables, task lists, proper headings, horizontal rules,
- * footnotes, and nested blockquotes.
+ * footnotes, nested blockquotes, KaTeX math, and Mermaid diagrams.
  *
- * Architecture: post-render interception. We patch the message
- * content render path, check for GFM patterns in the raw text,
- * and replace with our enhanced React components when found.
- * Messages without GFM patterns pass through untouched (zero overhead).
+ * Architecture: MessageAccessory-based rendering.
+ * Uses Vencord's renderMessageAccessory API to detect GFM patterns
+ * in message content and render enhanced components as accessories.
+ * Original message content is hidden via DOM manipulation when
+ * enhanced content is displayed.
+ *
+ * This approach requires no webpack patches, making it resilient
+ * to Discord client updates.
  */
 
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
-import { findByPropsLazy } from "@webpack";
 
 import { parseMessage, hasGfmPatterns, type ParsedBlock, type FeatureFlags } from "./parser";
 import { Table } from "./components/Table";
@@ -24,14 +27,11 @@ import { FootnoteSection } from "./components/Footnote";
 import { Blockquote } from "./components/Blockquote";
 import { MathBlock } from "./components/Math";
 import { MermaidBlock } from "./components/Mermaid";
+import { renderInline } from "./components/shared";
 import { loadKaTeX, cleanup as cleanupKaTeX } from "./katex-loader";
 import { cleanup as cleanupMermaid } from "./mermaid-loader";
 
 import "./style.css";
-
-// Discord's markdown parser — used for rendering inline content in text blocks
-// @ts-ignore
-const MarkdownParser = findByPropsLazy("parse", "defaultRules");
 
 const settings = definePluginSettings({
     enableTables: {
@@ -144,27 +144,15 @@ function renderBlock(block: ParsedBlock, key: number): React.ReactNode {
 
 /**
  * Render a text block using Discord's markdown parser for inline formatting.
- * This preserves bold, italic, code, spoilers, emoji, mentions, etc.
+ * Handles {{MATH:...}} and {{FN:...}} placeholders via shared.tsx's renderInline().
+ * Preserves bold, italic, code, spoilers, emoji, mentions, etc.
  */
 function renderTextBlock(text: string, key: number): React.ReactNode {
-    try {
-        if (MarkdownParser?.parse) {
-            const parsed = MarkdownParser.parse(text);
-            if (Array.isArray(parsed)) {
-                return <span key={key} className="bm-text-block">{parsed}</span>;
-            }
-            return <span key={key} className="bm-text-block">{parsed}</span>;
-        }
-    } catch {
-        // Parser not available or failed
-    }
-
-    // Fallback: plain text with line breaks
     return (
         <span key={key} className="bm-text-block">
             {text.split("\n").map((line, i, arr) => (
                 <span key={i}>
-                    {line}
+                    {renderInline(line)}
                     {i < arr.length - 1 && <br />}
                 </span>
             ))}
@@ -172,14 +160,108 @@ function renderTextBlock(text: string, key: number): React.ReactNode {
     );
 }
 
+/**
+ * React component that renders enhanced markdown as a message accessory.
+ * Hides the original message content via DOM manipulation when mounted,
+ * and restores it on unmount.
+ */
+function EnhancedMarkdownAccessory({ message }: { message: any; }) {
+    const { useRef, useEffect, useState } = Vencord.Webpack.Common.React;
+    const ref = useRef<HTMLDivElement>(null);
+    const hiddenRef = useRef<HTMLElement | null>(null);
+    const [, forceUpdate] = useState(0);
+
+    const content = message?.content;
+    const flags = getFeatureFlags();
+
+    // Check if this message should be enhanced
+    if (!content || typeof content !== "string" || !hasGfmPatterns(content, flags)) {
+        return null;
+    }
+
+    let blocks: ParsedBlock[];
+    try {
+        blocks = parseMessage(content, flags);
+    } catch (e) {
+        console.error("[BetterMarkdown] Parse error:", e);
+        return null;
+    }
+
+    // If parsing produced only plain text with no enhanced placeholders, don't enhance.
+    // Text blocks may contain {{MATH:...}} or {{FN:...}} placeholders that need rendering.
+    if (blocks.length === 1 && blocks[0].type === "text") {
+        const content = blocks[0].content;
+        if (!content.includes("{{MATH:") && !content.includes("{{FN:")) {
+            return null;
+        }
+    }
+
+    const themeClass = getThemeClass();
+
+    // Hide original message content and restore on unmount
+    useEffect(() => {
+        if (!ref.current) return;
+
+        // Strategy: walk up from our accessory to the message container,
+        // then find and hide the original message content element.
+        //
+        // Discord DOM structure (simplified):
+        //   <div role="article" ...>        ← message wrapper
+        //     <div class="contents_...">
+        //       <div id="message-content-XXX" class="markup_... messageContent_...">
+        //         original text here
+        //       </div>
+        //     </div>
+        //     <div id="message-accessories-XXX" class="container_...">
+        //       <div class="bm-enhanced-content">  ← our component (ref)
+        //     </div>
+        //   </div>
+
+        // Walk up to find the article (message wrapper)
+        let el: HTMLElement | null = ref.current;
+        while (el && el.getAttribute("role") !== "article") {
+            el = el.parentElement;
+        }
+        if (!el) return;
+
+        const messageWrapper = el;
+
+        // Find the content element by id pattern or class
+        const contentEl = (
+            messageWrapper.querySelector("[id^='message-content-']") ||
+            messageWrapper.querySelector("[class*='messageContent']") ||
+            messageWrapper.querySelector("[class*='markup_'][class*='messageContent']")
+        ) as HTMLElement | null;
+
+        if (contentEl && !contentEl.dataset.bmHidden) {
+            contentEl.dataset.bmHidden = "true";
+            contentEl.style.display = "none";
+            hiddenRef.current = contentEl;
+        }
+
+        return () => {
+            if (hiddenRef.current) {
+                hiddenRef.current.style.display = "";
+                delete hiddenRef.current.dataset.bmHidden;
+                hiddenRef.current = null;
+            }
+        };
+    }, [content]);
+
+    return (
+        <div ref={ref} className={`bm-enhanced-content ${themeClass}`.trim()} data-bm-message-id={message.id}>
+            {blocks.map((block, i) => renderBlock(block, i))}
+        </div>
+    );
+}
+
 export default definePlugin({
     name: "BetterMarkdown",
-    description: "Enhanced GFM markdown: tables, task lists, headings, horizontal rules, footnotes, and nested blockquotes",
-    authors: [{ name: "BetterMarkdown", id: 0n }],
+    description: "Enhanced markdown: GFM tables, task lists, headings, HR, footnotes, blockquotes, KaTeX math, Mermaid diagrams",
+    authors: [{ name: "Rei", id: 0n }],
     settings,
 
     start() {
-        // Preload KaTeX so it's ready when math content appears
         if (settings.store.enableMath) {
             loadKaTeX().catch(() => {
                 // Silently fail — KaTeX will retry on first render
@@ -192,116 +274,11 @@ export default definePlugin({
         cleanupMermaid();
     },
 
-    patches: [
-        {
-            // Intercept message content rendering.
-            //
-            // This targets the MessageContent component where message markup
-            // is parsed and rendered. The finder locates the module containing
-            // the message content render logic.
-            //
-            // TODO: verify finder with running Discord instance.
-            // If this finder doesn't work, try these alternatives in order:
-            //   1. "#{intl::MESSAGE_EDITED}"
-            //   2. ".messageContent,"
-            //   3. "renderMessageMarkupToAST"
-            //   4. "defaultRules"
-            //   5. ".content,className:"
-            //
-            find: "#{intl::MESSAGE_EDITED}",
-            replacement: {
-                // Match where message content children are assembled.
-                // This captures the message object and the rendered children,
-                // allowing us to intercept and enhance when GFM patterns are present.
-                //
-                // Pattern: looks for where `message` (a minified var) has its
-                // `.content` accessed and rendered into children.
-                // \i is Vencord's "any identifier" matcher.
-                match: /let\{className:\i,message:(\i),.*?children:(\i)(?=.*?#{intl::MESSAGE_EDITED})/,
-                replace: "let{className:$self._cn,message:$1,...$self._rest}=arguments[0];children:$self.processContent($2,$1)"
-            }
-        },
-        {
-            // Secondary patch: intercept the simpler markdown render path
-            // used for message previews and some content types.
-            //
-            // TODO: verify finder — this is a fallback if the primary patch
-            // doesn't catch all message content rendering.
-            find: "defaultRules",
-            predicate: () => false, // Disabled by default — enable if needed
-            replacement: {
-                match: /parse\((\i)\.content/,
-                replace: "$self.maybeEnhance($1)||parse($1.content"
-            }
-        },
-    ],
+    // No patches needed — we use the MessageAccessory API instead.
+    // This makes the plugin resilient to Discord client updates.
 
-    /**
-     * Core interception: checks if the message contains GFM patterns
-     * and returns enhanced React content if so.
-     */
-    processContent(originalChildren: React.ReactNode, message: any): React.ReactNode {
-        try {
-            if (!message?.content || typeof message.content !== "string") {
-                return originalChildren;
-            }
-
-            const flags = getFeatureFlags();
-            if (!hasGfmPatterns(message.content, flags)) {
-                return originalChildren;
-            }
-
-            const blocks = parseMessage(message.content, flags);
-
-            // If parsing produced only a single text block, no enhancement needed
-            if (blocks.length === 1 && blocks[0].type === "text") {
-                return originalChildren;
-            }
-
-            const themeClass = getThemeClass();
-
-            return (
-                <div className={`bm-enhanced-content ${themeClass}`.trim()}>
-                    {blocks.map((block, i) => renderBlock(block, i))}
-                </div>
-            );
-        } catch (e) {
-            // Graceful degradation: if anything fails, return original content
-            console.error("[BetterMarkdown] Error enhancing content:", e);
-            return originalChildren;
-        }
-    },
-
-    /**
-     * Alternative interception for the secondary patch.
-     * Returns enhanced JSX if GFM patterns found, or undefined to fall through.
-     */
-    maybeEnhance(message: any): React.ReactNode | undefined {
-        try {
-            if (!message?.content || typeof message.content !== "string") {
-                return undefined;
-            }
-
-            const flags = getFeatureFlags();
-            if (!hasGfmPatterns(message.content, flags)) {
-                return undefined;
-            }
-
-            const blocks = parseMessage(message.content, flags);
-            if (blocks.length === 1 && blocks[0].type === "text") {
-                return undefined;
-            }
-
-            const themeClass = getThemeClass();
-
-            return (
-                <div className={`bm-enhanced-content ${themeClass}`.trim()}>
-                    {blocks.map((block, i) => renderBlock(block, i))}
-                </div>
-            );
-        } catch {
-            return undefined;
-        }
+    renderMessageAccessory(props: { message: any; }) {
+        return <EnhancedMarkdownAccessory message={props.message} />;
     },
 
     /**

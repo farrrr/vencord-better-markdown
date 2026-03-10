@@ -73,11 +73,19 @@ export function hasGfmPatterns(text: string, flags: FeatureFlags): boolean {
 
 /**
  * Identify code block line ranges (``` ... ```) so we can skip them.
+ *
+ * Plain code blocks (no language tag, just ```) that contain GFM patterns
+ * are NOT protected — their content gets unwrapped and parsed as markdown.
+ * This handles the common case where bots/APIs wrap markdown in code blocks.
+ *
+ * Code blocks WITH a language tag (```python, ```js, etc.) or ```mermaid
+ * are always protected (mermaid is handled separately by its own parser).
  */
 function findCodeBlockRanges(lines: string[]): LineRange[] {
     const ranges: LineRange[] = [];
     let inBlock = false;
     let blockStart = 0;
+    let blockHasLang = false;
 
     for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].trim();
@@ -85,9 +93,28 @@ function findCodeBlockRanges(lines: string[]): LineRange[] {
             if (!inBlock) {
                 inBlock = true;
                 blockStart = i;
+                // Check if there's a language tag after ```
+                const lang = trimmed.slice(3).trim();
+                blockHasLang = lang.length > 0;
             } else {
                 inBlock = false;
-                ranges.push({ start: blockStart, end: i + 1 });
+                if (blockHasLang) {
+                    // Language-tagged code block — always protect
+                    ranges.push({ start: blockStart, end: i + 1 });
+                } else {
+                    // Plain code block — check if it contains GFM patterns
+                    const innerLines = lines.slice(blockStart + 1, i);
+                    const innerText = innerLines.join("\n");
+                    if (innerText.trim() && hasGfmLikeContent(innerText)) {
+                        // Contains GFM — don't protect, but strip the ``` wrapper lines
+                        // Replace ``` lines with empty lines so line indices stay aligned
+                        lines[blockStart] = "";
+                        lines[i] = "";
+                    } else {
+                        // Plain code with no GFM — protect it
+                        ranges.push({ start: blockStart, end: i + 1 });
+                    }
+                }
             }
         }
     }
@@ -98,6 +125,22 @@ function findCodeBlockRanges(lines: string[]): LineRange[] {
     }
 
     return ranges;
+}
+
+/**
+ * Quick check if text contains GFM-like patterns (table pipes, task lists, etc.)
+ * Used to decide whether plain code blocks should be unwrapped.
+ */
+function hasGfmLikeContent(text: string): boolean {
+    // Table: line with pipes
+    if (/^\s*\|.+\|/m.test(text) && /^\s*\|[\s:_-]+\|/m.test(text)) return true;
+    // Task list
+    if (/^\s*-\s*\[[ xX]\]/m.test(text)) return true;
+    // Heading
+    if (/^#{1,6}\s+\S/m.test(text)) return true;
+    // HR
+    if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/m.test(text)) return true;
+    return false;
 }
 
 /**
