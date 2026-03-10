@@ -15,6 +15,14 @@ A [Vencord](https://vencord.dev/) userplugin that enhances Discord's markdown re
 | **Mermaid Diagrams** | `` ```mermaid `` | Flowcharts, sequence diagrams, etc. via CDN |
 | **KaTeX Math** | `$E=mc^2$`, `$$...$$` | LaTeX math rendering via CDN |
 
+## Screenshots
+
+### Tables, Task Lists, Headings, Mermaid Flowchart, HR, Mixed Content
+![Showcase 1](screenshots/showcase-1.png)
+
+### Large Table (8×8), Sequence Diagram, Architecture Diagram
+![Showcase 2](screenshots/showcase-2.png)
+
 ## How It Works
 
 BetterMarkdown uses Vencord's `renderMessageAccessory` API to add enhanced rendering below each message, then hides the original content via DOM manipulation:
