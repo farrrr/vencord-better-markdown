@@ -14,10 +14,12 @@ export interface TaskListData {
     items: TaskItem[];
 }
 
-const TASK_PATTERN = /^[\s]*[-*+]\s+\[([ xX])\]\s+(.+)$/;
+// Match both standard markdown list markers (-*+) and Discord's
+// normalized bullet (•) which appears when Discord processes messages.
+const TASK_PATTERN = /^[\s]*[-*+•]\s+\[([ xX])\]\s+(.+)$/;
 
 export function detectTaskList(text: string): boolean {
-    return /[-*+]\s+\[[ xX]\]\s/.test(text);
+    return /[-*+•]\s+\[[ xX]\]\s/.test(text);
 }
 
 /**
