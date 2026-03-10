@@ -19,6 +19,7 @@ import {
 } from "./footnote";
 import { extractBlockquotes, detectNestedBlockquote, type BlockquoteData } from "./blockquote";
 import { detectMath, extractMathBlocks, replaceMathInline } from "./math";
+import { detectMermaid, extractMermaidBlocks } from "./mermaid";
 
 // Re-export types for consumers
 export type { TableData } from "./table";
@@ -35,6 +36,7 @@ export interface FeatureFlags {
     enableFootnotes: boolean;
     enableNestedBlockquotes: boolean;
     enableMath: boolean;
+    enableMermaid: boolean;
 }
 
 export type ParsedBlock =
@@ -45,7 +47,8 @@ export type ParsedBlock =
     | { type: "hr" }
     | { type: "footnoteSection"; content: FootnoteData }
     | { type: "blockquote"; content: BlockquoteData }
-    | { type: "mathBlock"; content: { latex: string } };
+    | { type: "mathBlock"; content: { latex: string } }
+    | { type: "mermaidBlock"; content: { code: string } };
 
 interface LineRange {
     start: number;
@@ -64,6 +67,7 @@ export function hasGfmPatterns(text: string, flags: FeatureFlags): boolean {
     if (flags.enableFootnotes && detectFootnotes(text)) return true;
     if (flags.enableNestedBlockquotes && detectNestedBlockquote(text)) return true;
     if (flags.enableMath && detectMath(text)) return true;
+    if (flags.enableMermaid && detectMermaid(text)) return true;
     return false;
 }
 
@@ -137,6 +141,18 @@ export function parseMessage(text: string, flags: FeatureFlags): ParsedBlock[] {
     const claimed: { start: number; end: number; block: ParsedBlock }[] = [];
 
     // --- Extract block-level structures ---
+
+    // Mermaid blocks — extract BEFORE code block protection since we need ```mermaid blocks
+    if (flags.enableMermaid) {
+        const mermaidBlocks = extractMermaidBlocks(lines);
+        for (const mb of mermaidBlocks) {
+            claimed.push({
+                start: mb.start,
+                end: mb.end,
+                block: { type: "mermaidBlock", content: { code: mb.code } },
+            });
+        }
+    }
 
     // Math blocks ($$...$$) — extract BEFORE other parsers to take priority
     if (flags.enableMath) {

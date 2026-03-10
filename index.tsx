@@ -23,7 +23,9 @@ import { Hr } from "./components/Hr";
 import { FootnoteSection } from "./components/Footnote";
 import { Blockquote } from "./components/Blockquote";
 import { MathBlock } from "./components/Math";
+import { MermaidBlock } from "./components/Mermaid";
 import { loadKaTeX, cleanup as cleanupKaTeX } from "./katex-loader";
+import { cleanup as cleanupMermaid } from "./mermaid-loader";
 
 import "./style.css";
 
@@ -74,6 +76,12 @@ const settings = definePluginSettings({
         default: true,
         restartNeeded: false,
     },
+    enableMermaid: {
+        type: OptionType.BOOLEAN,
+        description: "Render Mermaid diagrams from ```mermaid code blocks",
+        default: true,
+        restartNeeded: false,
+    },
     theme: {
         type: OptionType.SELECT,
         description: "Visual theme for enhanced elements",
@@ -95,6 +103,7 @@ function getFeatureFlags(): FeatureFlags {
         enableFootnotes: settings.store.enableFootnotes,
         enableNestedBlockquotes: settings.store.enableNestedBlockquotes,
         enableMath: settings.store.enableMath,
+        enableMermaid: settings.store.enableMermaid,
     };
 }
 
@@ -124,6 +133,8 @@ function renderBlock(block: ParsedBlock, key: number): React.ReactNode {
             return <Blockquote key={key} data={block.content} />;
         case "mathBlock":
             return <MathBlock key={key} latex={block.content.latex} />;
+        case "mermaidBlock":
+            return <MermaidBlock key={key} code={block.content.code} />;
         case "text":
             return renderTextBlock(block.content, key);
         default:
@@ -178,6 +189,7 @@ export default definePlugin({
 
     stop() {
         cleanupKaTeX();
+        cleanupMermaid();
     },
 
     patches: [
