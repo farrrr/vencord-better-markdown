@@ -16,6 +16,15 @@
  */
 
 /* ============================================================
+ * CONTENT HIDING
+ * Hide original message content when enhanced rendering is active.
+ * Uses CSS :has() — no JavaScript DOM manipulation needed.
+ * ============================================================ */
+[role="article"]:has(.bm-enhanced-content) [id^="message-content-"] {
+    display: none;
+}
+
+/* ============================================================
  * TABLE
  * ============================================================ */
 
