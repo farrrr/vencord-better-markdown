@@ -10,22 +10,27 @@ import { type TableData } from "../parser/table";
 import { renderInline } from "./shared";
 
 export function Table({ data }: { data: TableData }) {
+    // Headerless table: all header texts are empty (continuation fragment)
+    const hasHeaders = data.headers.some(h => h.text.trim() !== "");
+
     return (
         <div className="bm-table-wrapper">
             <table className="bm-table">
-                <thead>
-                    <tr>
-                        {data.headers.map((header, i) => (
-                            <th
-                                key={i}
-                                className="bm-table-th"
-                                style={{ textAlign: header.align === "none" ? undefined : header.align }}
-                            >
-                                {renderInline(header.text)}
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
+                {hasHeaders && (
+                    <thead>
+                        <tr>
+                            {data.headers.map((header, i) => (
+                                <th
+                                    key={i}
+                                    className="bm-table-th"
+                                    style={{ textAlign: header.align === "none" ? undefined : header.align }}
+                                >
+                                    {renderInline(header.text)}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                )}
                 <tbody>
                     {data.rows.map((row, rowIdx) => (
                         <tr key={rowIdx} className={rowIdx % 2 === 1 ? "bm-table-row-alt" : undefined}>

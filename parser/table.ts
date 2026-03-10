@@ -16,8 +16,23 @@ export interface TableData {
 }
 
 // Quick check — avoids full parse for non-table messages
+// Also detects headerless tables (continuation fragments from split messages)
 export function detectTable(text: string): boolean {
-    return /\|.+\|/.test(text) && /\|[\s:]*-{3,}[\s:]*\|/.test(text);
+    // Standard GFM table with separator
+    if (/\|.+\|/.test(text) && /\|[\s:]*-{3,}[\s:]*\|/.test(text)) return true;
+    // Headerless table: 2+ consecutive lines starting and ending with |
+    const lines = text.split("\n");
+    let consecutivePipeLines = 0;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.includes("|", 1)) {
+            consecutivePipeLines++;
+            if (consecutivePipeLines >= 2) return true;
+        } else {
+            consecutivePipeLines = 0;
+        }
+    }
+    return false;
 }
 
 // Split a table row into cells, respecting escaped pipes
@@ -117,8 +132,44 @@ export function parseTable(lines: string[]): TableData | null {
 }
 
 /**
+ * Parse a block of pipe-separated lines as a headerless table.
+ * Used for continuation fragments (e.g. split messages without header/separator).
+ * Infers column count from the first row; all columns default to "none" alignment.
+ */
+function parseHeaderlessTable(lines: string[]): TableData | null {
+    if (lines.length < 1) return null;
+
+    const rows: string[][] = [];
+    let colCount = 0;
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) break;
+        const cells = splitRow(trimmed);
+        if (colCount === 0) colCount = cells.length;
+        const row: string[] = [];
+        for (let c = 0; c < colCount; c++) {
+            row.push(cells[c] ?? "");
+        }
+        rows.push(row);
+    }
+
+    if (rows.length < 1 || colCount < 2) return null;
+
+    // No real headers — use empty headers so the component renders without a header row
+    const headers = Array.from({ length: colCount }, () => ({
+        text: "",
+        align: "none" as const,
+    }));
+
+    return { headers, rows };
+}
+
+/**
  * Extract table blocks from lines array.
  * Returns indices of lines consumed by tables + parsed data.
+ * Supports both standard GFM tables (with header/separator) and
+ * headerless tables (continuation fragments from split messages).
  */
 export function extractTables(lines: string[]): { start: number; end: number; data: TableData }[] {
     const tables: { start: number; end: number; data: TableData }[] = [];
@@ -140,6 +191,25 @@ export function extractTables(lines: string[]): { start: number; end: number; da
                     tables.push({ start: i, end, data });
                     i = end;
                     continue;
+                }
+            }
+
+            // No valid separator — try headerless table
+            const trimmed = lines[i].trim();
+            if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+                let end = i;
+                while (end < lines.length) {
+                    const t = lines[end].trim();
+                    if (!t.startsWith("|") || !t.endsWith("|")) break;
+                    end++;
+                }
+                if (end - i >= 2) {
+                    const data = parseHeaderlessTable(lines.slice(i, end));
+                    if (data) {
+                        tables.push({ start: i, end, data });
+                        i = end;
+                        continue;
+                    }
                 }
             }
         }
